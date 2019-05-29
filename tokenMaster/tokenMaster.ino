@@ -6,15 +6,22 @@ const unsigned char FRAME_BYTES =  message_bytes + 2;
 const unsigned char BUS_PIN = 7; 
 const int clientID = 1;
 unsigned char token[message_bytes];
+char message[8];
+int currentMessageIndex = 0;
+bool messageEntered = false;
 struct Payload
 {
   char payloadContent[8];
   int payloadPosition = 0;
-  bool payloadDone;
+  bool payloadDone = false;
 };
 Payload payloads[clients];
 unsigned char * tokenPointer;
 bool tokenHolder = true;
+struct State {
+  unsigned long int state_millis;
+  unsigned char state_value;
+};
 
 void setup() {
   Serial.begin(9600);
@@ -24,14 +31,50 @@ void setup() {
 }
 
 void loop() {
+  volatile static unsigned char payload = 0;
   if (tokenHolder)
   {
-    unsigned char destinationID = 2;
-    unsigned char payload = 'A';
+    static unsigned char destinationID = 2;
     updateToken(token, message_bytes, clientID, destinationID, payload);
+    sendMessage(token);
+    delay(500);
   } else
   {
-    readToken(token, clients, clientID);
+    reciveMessage();
+  }
+
+  if (messageEntered)
+  {
+    payload = message[currentMessageIndex];
+    currentMessageIndex++;
+    if (currentMessageIndex >= 7)
+    {
+      currentMessageIndex = 0;
+      messageEntered = false;
+      for (int index = 0; index < 8; index++)
+      {
+        message[index] = 0;
+      }
+      tokenHolder = false;   
+    }
+  } else
+  {
+    if (currentMessageIndex >= 7)
+    {
+      messageEntered = true;
+      currentMessageIndex = 0;
+    } else
+    {
+      if (Serial.read() == '\n')
+      {
+        messageEntered = true;
+        currentMessageIndex = 0;
+      } else
+      {
+        message[currentMessageIndex] = Serial.read();
+        currentMessageIndex++;
+      }
+    }
   }
 }
 
@@ -60,6 +103,7 @@ bool readToken(unsigned char * token, int clients, unsigned char clientID) {
           payloads[index].payloadContent[payloads[index].payloadPosition] = * (token + 3 + (index * 2));
           payloads[index].payloadPosition++;
           payloads[index].payloadDone = false;
+          * (token + 3 + (index * 2)) = 0;
         } else if (payloads[index].payloadDone == false)
         {
           payloads[index].payloadDone = true;
@@ -73,6 +117,24 @@ bool readToken(unsigned char * token, int clients, unsigned char clientID) {
       }
     } 
     tokenHolder = true; 
+  } 
+}
+
+void printPayloads() {
+  for (int index = 0; index < clients; index++)
+  {
+    if (payloads[index].payloadDone == true)
+    {
+      Serial.print("Message from client ");
+      Serial.print(index + 1);
+      Serial.print(": ");
+      for (int i = 0; i < 8; i++)
+      {
+        Serial.print(payloads[index].payloadContent[i]);
+      }
+      Serial.println();
+      payloads[index].payloadDone = false;
+    }   
   } 
 }
 
@@ -119,4 +181,65 @@ void sendMessage(unsigned char * token) {
     Serial.println(current_millis - start_millis);
   }
   pinMode(BUS_PIN, INPUT);
+}
+
+void reciveMessage () {
+  volatile static State states[256];
+  volatile static unsigned long word_start = 0;
+  volatile static unsigned char word_started = false;
+  volatile static unsigned char last_state = 0;
+  volatile static unsigned char word_done = false;
+  volatile static unsigned char state_count = 0;
+
+  volatile unsigned long current_millis = millis();
+  volatile unsigned char current_state = digitalRead(BUS_PIN);
+
+  if (last_state != current_state) {
+    last_state = current_state;
+    digitalWrite(LED_BUILTIN, current_state);
+    if (!word_started) {
+      word_start = current_millis;
+      word_started = true;
+    }
+    states[state_count].state_millis = current_millis;
+    states[state_count].state_value = current_state;
+    state_count++;
+  }
+
+  if ( word_started && (current_millis - word_start) > BIT_LENGTH * FRAME_BYTES * 8) {
+    Serial.print("Got a Frame ");
+    Serial.print(" ");
+    Serial.print(" ");
+    Serial.println(state_count);
+    for (int bit_count = 0; bit_count < FRAME_BYTES * 8; bit_count ++) {
+      bool current_bit = states[0].state_value;
+      for (int state_count = 0;
+           state_count < FRAME_BYTES * 8;
+           state_count ++) {
+        if ((states[state_count].state_millis - states[0].state_millis) <
+            (bit_count * BIT_LENGTH + (BIT_LENGTH / 2) ) ) {
+          current_bit = states[state_count].state_value;
+        }
+      }
+      Serial.print(current_bit);
+    }
+    Serial.println();
+    for (int index = 0; index < message_bytes; index++)
+    {
+      for (int i = 0; i < 8; i++)
+      {
+        * (token + index) |= (states[8 + i + (index * 8)].state_value<<(7 - i));
+      }  
+    }
+    word_done = true;
+    readToken(token, clients, clientID);
+  }
+
+  if (word_done) {
+    word_start = 0;
+    word_started = false;
+    last_state = 0;
+    word_done = false;
+    state_count = 0;
+  }
 }
