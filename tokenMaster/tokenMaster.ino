@@ -38,6 +38,7 @@ void loop() {
     updateToken(token, message_bytes, clientID, destinationID, payload);
     sendMessage(token);
     delay(500);
+    tokenHolder = false;
   } else
   {
     reciveMessage();
@@ -47,7 +48,7 @@ void loop() {
   {
     payload = message[currentMessageIndex];
     currentMessageIndex++;
-    if (currentMessageIndex >= 7)
+    if (currentMessageIndex >= 8)
     {
       currentMessageIndex = 0;
       messageEntered = false;
@@ -59,19 +60,26 @@ void loop() {
     }
   } else
   {
-    if (currentMessageIndex >= 7)
+    char input = Serial.read();
+    if (currentMessageIndex >= 8)
     {
       messageEntered = true;
       currentMessageIndex = 0;
     } else
     {
-      if (Serial.read() == '\n')
+      if (input == '\n')
       {
+        Serial.print("input: ");
+        for(int i = 0; i < 8; i++){
+          Serial.print(message[i]);
+        }
+        Serial.println();
         messageEntered = true;
         currentMessageIndex = 0;
-      } else
+      } else if(input >= 0 && input <= 127)
       {
-        message[currentMessageIndex] = Serial.read();
+        message[currentMessageIndex] = input;
+        Serial.print("Character entered");
         currentMessageIndex++;
       }
     }
