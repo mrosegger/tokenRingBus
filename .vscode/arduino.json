@@ -1,5 +1,6 @@
 {
     "board": "arduino:avr:uno",
     "programmer": "AVR ISP",
-    "sketch": "tokenMaster\\tokenMaster.ino"
+    "sketch": "tokenMaster\\tokenMaster.ino",
+    "port": "COM3"
 }

@@ -9,8 +9,8 @@ unsigned char token[message_bytes];
 char message[8];
 int currentMessageIndex = 0;
 bool messageEntered = false;
-struct Payload
-{
+bool messageTimer = false;
+struct Payload {
   char payloadContent[8];
   int payloadPosition = 0;
   bool payloadDone = false;
@@ -28,20 +28,38 @@ void setup() {
   pinMode(BUS_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   tokenPointer = token;
+
+  //  Config Timer:
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0
+  // set compare match register for 1hz increments
+  OCR1A = 15624;// = (16*10^6) / (1*1024) - 1 (must be <65536) 1 sec = 15624; 0,5s = 7812
+  // turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  // Set CS10 and CS12 bits for 1024 prescaler
+  TCCR1B |= (1 << CS12) | (1 << CS10);  
+  // enable timer compare interrupt
+  TIMSK1 |= (1 << OCIE1A);
 }
+
 
 void loop() {
   volatile static unsigned char payload = 0;
+  if(messageTimer) {
+    sendMessage(token);
+    messageTimer = false;
+  }
   if (tokenHolder)
   {
     static unsigned char destinationID = 2;
     updateToken(token, message_bytes, clientID, destinationID, payload);
-    sendMessage(token);
-    delay(500);
     tokenHolder = false;
   } else
   {
     reciveMessage();
+    Serial.println("Message read");
+    TIMSK1 |= (1 << OCIE1A);    
   }
 
   if (messageEntered)
@@ -79,12 +97,13 @@ void loop() {
       } else if(input >= 0 && input <= 127)
       {
         message[currentMessageIndex] = input;
-        Serial.print("Character entered");
+        Serial.println("Character entered");
         currentMessageIndex++;
       }
     }
   }
 }
+
 
 void updateToken(unsigned char * token, unsigned char message_bytes, unsigned char clientID, unsigned char destinationID, unsigned char payload) {
   * token = clientID;
@@ -249,5 +268,12 @@ void reciveMessage () {
     last_state = 0;
     word_done = false;
     state_count = 0;
+    TIMSK1 |= (1 << OCIE1A);
   }
+}
+
+ISR(TIMER1_COMPA_vect){
+  TIMSK1 = 0;
+  messageTimer = true;
+  Serial.println("Interupt");
 }
