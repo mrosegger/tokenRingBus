@@ -4,8 +4,8 @@ const unsigned char bytesPerClient = 2;
 const unsigned char message_bytes = bytesPerClient * clients + 2; // 
 const unsigned char FRAME_BYTES =  message_bytes + 2; 
 const unsigned char BUS_PIN = 7; 
-const int clientID = 1;
-unsigned char token[message_bytes];
+const unsigned char clientID = 1;
+// unsigned char token[message_bytes];
 char message[8];
 int currentMessageIndex = 0;
 bool messageEntered = false;
@@ -16,7 +16,7 @@ struct Payload {
   bool payloadDone = false;
 };
 Payload payloads[clients];
-unsigned char * tokenPointer;
+unsigned char * token[message_bytes];
 bool tokenHolder = true;
 struct State {
   unsigned long int state_millis;
@@ -27,7 +27,7 @@ void setup() {
   Serial.begin(9600);
   pinMode(BUS_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-  tokenPointer = token;
+  // * tokenPointer = token;
 
   //  Config Timer:
   TCCR1A = 0;// set entire TCCR1A register to 0
@@ -47,6 +47,12 @@ void setup() {
 void loop() {
   volatile static unsigned char payload = 0;
   if(messageTimer) {
+    Serial.print("Token: ");
+    for(int i = 0; i < 8; i++) {
+      char t= (token + i);
+      Serial.print(t);
+    }
+    Serial.println();
     sendMessage(token);
     messageTimer = false;
     tokenHolder = true;
@@ -66,15 +72,13 @@ void loop() {
         }
       }
     }
-    updateToken(token, message_bytes, clientID, destinationID, payload);
+    updateToken(destinationID, payload);
     tokenHolder = false;
     // Serial.println("Token changed");
-    TIMSK1 |= (1 << OCIE1A);
   } else
   {
     reciveMessage();
-    Serial.println("Message read");
-    TIMSK1 |= (1 << OCIE1A);    
+    // Serial.println("Message read");    
   }
 
   if (!messageEntered)
@@ -111,20 +115,20 @@ void loop() {
 }
 
 
-void updateToken(unsigned char * token, unsigned char message_bytes, unsigned char clientID, unsigned char destinationID, unsigned char payload) {
-  * token = clientID;
+void updateToken(unsigned char destinationID, unsigned char payload) {
+  token[0] = &clientID;
   if (clientID == clients)
   {
-    * (token + 1) = 1;
+    token[1] = 1;
   } else
   {
-    * (token + 1) = clientID + 1;
+    token[1] = clientID + 1;
   }
-  * (token + clientID + 1) = destinationID;
-  * (token + clientID + 2) = payload;
+  token[clientID + 1] = &destinationID;
+  token[clientID + 2] = &payload;
 }
 
-bool readToken(unsigned char * token, int clients, unsigned char clientID) {
+bool readToken() {
   if (* (token + 1) == clientID)
   {
     for (int index = 0; index < clients; index++)
@@ -171,7 +175,7 @@ void printPayloads() {
   } 
 }
 
-void sendMessage(unsigned char * token) {
+void sendMessage(unsigned char * token[]) {
   unsigned char raw_message[FRAME_BYTES];
   raw_message[0] = (1<<0)|(1<<1)|(1<<3)|(1<<5)|(1<<7);
   raw_message[FRAME_BYTES] = 0;
@@ -261,11 +265,11 @@ void reciveMessage () {
     {
       for (int i = 0; i < 8; i++)
       {
-        * (token + index) |= (states[8 + i + (index * 8)].state_value<<(7 - i));
+        token[index] |= (unsigned char)(states[8 + i + (index * 8)].state_value<<(7 - i));
       }  
     }
     word_done = true;
-    readToken(token, clients, clientID);
+    readToken();
   }
 
   if (word_done) {
@@ -279,8 +283,6 @@ void reciveMessage () {
 }
 
 ISR(TIMER1_COMPA_vect){
-  TCCR1A = 0;// set entire TCCR1A register to 0
-  TCCR1B = 0;// same for TCCR1B
   TCNT1  = 0;//initialize counter value to 0
   TIMSK1 = 0;
   messageTimer = true;
