@@ -49,12 +49,27 @@ void loop() {
   if(messageTimer) {
     sendMessage(token);
     messageTimer = false;
+    tokenHolder = true;
   }
   if (tokenHolder)
   {
     static unsigned char destinationID = 2;
+    if(messageEntered){
+      payload = message[currentMessageIndex];
+      currentMessageIndex++;
+      if(currentMessageIndex >= 8) {
+        currentMessageIndex = 0;
+        messageEntered = false;
+        for (int index = 0; index < 8; index++)
+        {
+          message[index] = 0;
+        }
+      }
+    }
     updateToken(token, message_bytes, clientID, destinationID, payload);
     tokenHolder = false;
+    // Serial.println("Token changed");
+    TIMSK1 |= (1 << OCIE1A);
   } else
   {
     reciveMessage();
@@ -62,27 +77,18 @@ void loop() {
     TIMSK1 |= (1 << OCIE1A);    
   }
 
-  if (messageEntered)
-  {
-    payload = message[currentMessageIndex];
-    currentMessageIndex++;
-    if (currentMessageIndex >= 8)
-    {
-      currentMessageIndex = 0;
-      messageEntered = false;
-      for (int index = 0; index < 8; index++)
-      {
-        message[index] = 0;
-      }
-      tokenHolder = false;   
-    }
-  } else
-  {
+  if (!messageEntered)
+  { 
     char input = Serial.read();
     if (currentMessageIndex >= 8)
     {
-      messageEntered = true;
+      Serial.print("input: ");
+      for(int i = 0; i < 8; i++){
+        Serial.print(message[i]);
+      }
+      Serial.println();
       currentMessageIndex = 0;
+      messageEntered = true;
     } else
     {
       if (input == '\n')
@@ -92,8 +98,8 @@ void loop() {
           Serial.print(message[i]);
         }
         Serial.println();
-        messageEntered = true;
         currentMessageIndex = 0;
+        messageEntered = true;
       } else if(input >= 0 && input <= 127)
       {
         message[currentMessageIndex] = input;
@@ -273,6 +279,9 @@ void reciveMessage () {
 }
 
 ISR(TIMER1_COMPA_vect){
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0
   TIMSK1 = 0;
   messageTimer = true;
   Serial.println("Interupt");
