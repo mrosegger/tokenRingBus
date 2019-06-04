@@ -5,7 +5,7 @@ const unsigned char message_bytes = bytesPerClient * clients + 2; //
 const unsigned char FRAME_BYTES =  message_bytes + 2; 
 const unsigned char BUS_PIN = 7; 
 const unsigned char clientID = 1;
-// unsigned char token[message_bytes];
+unsigned char token[message_bytes];
 char message[8];
 int currentMessageIndex = 0;
 bool messageEntered = false;
@@ -16,7 +16,6 @@ struct Payload {
   bool payloadDone = false;
 };
 Payload payloads[clients];
-unsigned char * token[message_bytes];
 bool tokenHolder = true;
 struct State {
   unsigned long int state_millis;
@@ -27,7 +26,6 @@ void setup() {
   Serial.begin(9600);
   pinMode(BUS_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-  // * tokenPointer = token;
 
   //  Config Timer:
   TCCR1A = 0;// set entire TCCR1A register to 0
@@ -265,7 +263,7 @@ void reciveMessage () {
     {
       for (int i = 0; i < 8; i++)
       {
-        token[index] |= (unsigned char)(states[8 + i + (index * 8)].state_value<<(7 - i));
+        token[index] |= (states[8 + i + (index * 8)].state_value<<(7 - i));
       }  
     }
     word_done = true;
