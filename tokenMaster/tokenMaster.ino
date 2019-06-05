@@ -1,84 +1,49 @@
-const unsigned long int BIT_LENGTH = 50; // millis per bit
+const unsigned int BIT_LENGTH = 50; // millis per bit
 const int clients = 2; // Clients in ring
 const unsigned char bytesPerClient = 2;
-const unsigned char message_bytes = bytesPerClient * clients + 2; // 
+const unsigned char message_bytes = bytesPerClient * clients + 2; 
 const unsigned char FRAME_BYTES =  message_bytes + 2; 
 const unsigned char BUS_PIN = 7; 
 const unsigned char clientID = 1;
-unsigned char token[message_bytes];
-char message[8];
-int currentMessageIndex = 0;
-bool messageEntered = false;
-bool messageTimer = false;
-struct Payload {
-  char payloadContent[8];
-  int payloadPosition = 0;
-  bool payloadDone = false;
-};
-Payload payloads[clients];
-bool tokenHolder = true;
+const unsigned char destinationID = 2;
 struct State {
-  unsigned long int state_millis;
+  unsigned int state_millis; // Removed long int! If program breaks reimplement
   unsigned char state_value;
+};
+struct Payload {
+char payloadContent[8];
+int payloadPosition = 0;
+bool payloadDone = false;
 };
 
 void setup() {
   Serial.begin(9600);
   pinMode(BUS_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-
-  //  Config Timer:
-  TCCR1A = 0;// set entire TCCR1A register to 0
-  TCCR1B = 0;// same for TCCR1B
-  TCNT1  = 0;//initialize counter value to 0
-  // set compare match register for 1hz increments
-  OCR1A = 15624;// = (16*10^6) / (1*1024) - 1 (must be <65536) 1 sec = 15624; 0,5s = 7812
-  // turn on CTC mode
-  TCCR1B |= (1 << WGM12);
-  // Set CS10 and CS12 bits for 1024 prescaler
-  TCCR1B |= (1 << CS12) | (1 << CS10);  
-  // enable timer compare interrupt
-  TIMSK1 |= (1 << OCIE1A);
 }
 
-
 void loop() {
-  volatile static unsigned char payload = 0;
-  if(messageTimer) {
+  static unsigned char token[message_bytes]; // token which is passed around
+  static char message[8]; // Message which will be sent to other client
+  static bool tokenHolder = true; // Checks if client is current tokenholder
+  static bool messageEntered = false; // Checks if message has been input
+
+  if(!tokenHolder){
+    reciveMessage(token, &tokenHolder, message, &messageEntered);
+  }else {
+    delay(500);
     Serial.print("Token: ");
     for(int i = 0; i < 8; i++) {
-      char t= (token + i);
+      char t= token[i];
       Serial.print(t);
     }
     Serial.println();
     sendMessage(token);
-    messageTimer = false;
-    tokenHolder = true;
-  }
-  if (tokenHolder)
-  {
-    static unsigned char destinationID = 2;
-    if(messageEntered){
-      payload = message[currentMessageIndex];
-      currentMessageIndex++;
-      if(currentMessageIndex >= 8) {
-        currentMessageIndex = 0;
-        messageEntered = false;
-        for (int index = 0; index < 8; index++)
-        {
-          message[index] = 0;
-        }
-      }
-    }
-    updateToken(destinationID, payload);
     tokenHolder = false;
-    // Serial.println("Token changed");
-  } else
-  {
-    reciveMessage();
-    // Serial.println("Message read");    
   }
 
+  // Input 
+  static int currentMessageIndex = 0;
   if (!messageEntered)
   { 
     char input = Serial.read();
@@ -112,74 +77,14 @@ void loop() {
   }
 }
 
-
-void updateToken(unsigned char destinationID, unsigned char payload) {
-  token[0] = &clientID;
-  if (clientID == clients)
-  {
-    token[1] = 1;
-  } else
-  {
-    token[1] = clientID + 1;
-  }
-  token[clientID + 1] = &destinationID;
-  token[clientID + 2] = &payload;
-}
-
-bool readToken() {
-  if (* (token + 1) == clientID)
-  {
-    for (int index = 0; index < clients; index++)
-    {
-      if (!(clientID - 1 == index))
-      {
-        if ((* (token + 2 + (index * 2)) == clientID) && payloads[index].payloadDone == true)
-        {
-          payloads[index].payloadContent[payloads[index].payloadPosition] = * (token + 3 + (index * 2));
-          payloads[index].payloadPosition++;
-          payloads[index].payloadDone = false;
-          * (token + 3 + (index * 2)) = 0;
-        } else if (payloads[index].payloadDone == false)
-        {
-          payloads[index].payloadDone = true;
-          for (int i = payloads[index].payloadPosition; i < 8; i++)
-          {
-            payloads[index].payloadContent[i] = 0;
-          }
-          payloads[index].payloadPosition = 0;
-        }
-        
-      }
-    } 
-    tokenHolder = true; 
-  } 
-}
-
-void printPayloads() {
-  for (int index = 0; index < clients; index++)
-  {
-    if (payloads[index].payloadDone == true)
-    {
-      Serial.print("Message from client ");
-      Serial.print(index + 1);
-      Serial.print(": ");
-      for (int i = 0; i < 8; i++)
-      {
-        Serial.print(payloads[index].payloadContent[i]);
-      }
-      Serial.println();
-      payloads[index].payloadDone = false;
-    }   
-  } 
-}
-
-void sendMessage(unsigned char * token[]) {
+// Outputs the token to a pin
+void sendMessage(unsigned char * token) {
   unsigned char raw_message[FRAME_BYTES];
   raw_message[0] = (1<<0)|(1<<1)|(1<<3)|(1<<5)|(1<<7);
   raw_message[FRAME_BYTES] = 0;
   for (int index = 1; index < FRAME_BYTES - 1; index++)
   {
-    raw_message[index] = * (token + index - 1);
+    raw_message[index] = token[index - 1];
     raw_message[FRAME_BYTES] = raw_message[FRAME_BYTES] ^ raw_message[index];
   }
   unsigned long int start_millis = millis();
@@ -208,6 +113,7 @@ void sendMessage(unsigned char * token[]) {
       last_bit = current_bit;
     }
     current_millis = millis();
+    TIMSK1 = 0;
   }
   if (Serial) {
     Serial.println(messageString);
@@ -218,7 +124,8 @@ void sendMessage(unsigned char * token[]) {
   pinMode(BUS_PIN, INPUT);
 }
 
-void reciveMessage () {
+// Checks if there is a token being sent and captures it
+void reciveMessage (unsigned char * token, bool * tokenHolder, char * message, bool * messageEntered) {
   volatile static State states[256];
   volatile static unsigned long word_start = 0;
   volatile static unsigned char word_started = false;
@@ -267,7 +174,6 @@ void reciveMessage () {
       }  
     }
     word_done = true;
-    readToken();
   }
 
   if (word_done) {
@@ -276,13 +182,87 @@ void reciveMessage () {
     last_state = 0;
     word_done = false;
     state_count = 0;
-    TIMSK1 |= (1 << OCIE1A);
+    // Checks if client is recipient of token
+    if(token[1] == clientID) {
+      *tokenHolder = true;
+      readToken(token);
+      updateToken(token, message, &messageEntered);
+    }
   }
 }
 
-ISR(TIMER1_COMPA_vect){
-  TCNT1  = 0;//initialize counter value to 0
-  TIMSK1 = 0;
-  messageTimer = true;
-  Serial.println("Interupt");
+// Updates source address, destination address, and payload of token if there is one
+void updateToken(unsigned char * token, char * message, bool ** messageEntered) {
+  static int currentMessageIndex = 0;
+  if (**messageEntered)
+  {
+    token[clientID + 2] = message[currentMessageIndex];
+    message[currentMessageIndex] = 0;
+    currentMessageIndex++;
+  } else {
+    token[clientID + 2] = 0;
+  }
+  if (currentMessageIndex > 7 || message[currentMessageIndex] == 0)
+  {
+    **messageEntered = false;
+  }
+  
+  token[0] = clientID;
+  if (clientID == clients)
+  {
+    token[1] = 1;
+  } else
+  {
+    token[1] = clientID + 1;
+  }
+  token[clientID + 1] = destinationID;
+}
+
+// Reads the content of a token and stores recived message until complete message has been recived. Then prints it out
+bool readToken(unsigned char * token) {
+  static Payload payloads[clients];
+
+  if (token[1] == clientID)
+  {
+    for (int index = 0; index < clients; index++)
+    {
+      if (!(clientID - 1 == index))
+      {
+        if (token[2 + (index * 2)] == clientID)
+        {
+          char currentPayload = token[3 + (index * 2)];
+          token[3 + (index * 2)]= 0;
+          if(currentPayload == 0 || payloads[index].payloadPosition > 7 && payloads[index].payloadDone == false) {
+            payloads[index].payloadDone = true;
+            Serial.print("Recived message: ");
+            for (int currentChar = 0; currentChar < 8; currentChar++)
+            {
+              Serial.print(payloads[index].payloadContent[currentChar]);
+              payloads[index].payloadContent[currentChar] = 0;
+            }
+            Serial.println();
+            payloads[index].payloadPosition = 0;
+          } else{
+            if (currentPayload == !0)
+            {
+              payloads[index].payloadDone = false;
+            }
+            payloads[index].payloadContent[payloads[index].payloadPosition] = currentPayload;
+            payloads[index].payloadPosition++;
+          }
+        } else if (payloads[index].payloadDone == false)
+        {
+          payloads[index].payloadDone = true;
+          Serial.print("Recived message: ");
+          for (int currentChar = 0; currentChar < 8; currentChar++)
+          {
+            Serial.print(payloads[index].payloadContent[currentChar]);
+            payloads[index].payloadContent[currentChar] = 0;
+          }
+          Serial.println();
+          payloads[index].payloadPosition = 0;
+        }       
+      }
+    }  
+  } 
 }
