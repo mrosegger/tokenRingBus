@@ -4,9 +4,9 @@ const unsigned char bytesPerClient = 2;
 const unsigned char message_bytes = bytesPerClient * clients + 2; // 
 const unsigned char FRAME_BYTES =  message_bytes + 2; 
 const unsigned char BUS_PIN = 7; 
-const unsigned char clientID = 1;
+const unsigned char clientID = 2;
 const unsigned char destinationID = 2;
-volatile bool timeUP = false;
+bool timeUP = false;
 struct State {
   unsigned int state_millis;
   unsigned char state_value;
@@ -17,6 +17,19 @@ void setup() {
   Serial.begin(9600);
   pinMode(BUS_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
+
+  //  Config Timer:
+  TCCR1A = 0;// set entire TCCR1A register to 0
+  TCCR1B = 0;// same for TCCR1B
+  TCNT1  = 0;//initialize counter value to 0
+  // set compare match register for 1hz increments
+  OCR1A = 15624 ;// = (16*10^6) / (1*1024) - 1 (must be <65536) 1 sec = 15624; 0,5s = 7812
+  // turn on CTC mode
+  TCCR1B |= (1 << WGM12);
+  // Set CS10 and CS12 bits for 1024 prescaler
+  TCCR1B |= (1 << CS12) | (1 << CS10);  
+  // enable timer compare interrupt
+  // TIMSK1 |= (1 << OCIE1A);
 }
 
 void loop() {
@@ -27,16 +40,6 @@ void loop() {
 
   if(!tokenHolder){
     reciveMessage(token, &tokenHolder, message, &messageEntered);
-  }else {
-    delay(500);
-    Serial.print("Token: ");
-    for(int i = 0; i < 8; i++) {
-      char t= token[i];
-      Serial.print(t);
-    }
-    Serial.println();
-    sendMessage(token);
-    tokenHolder = false;
   }
 
   static int currentMessageIndex = 0;
@@ -108,7 +111,6 @@ void sendMessage(unsigned char * token) {
       last_bit = current_bit;
     }
     current_millis = millis();
-    TIMSK1 = 0;
   }
   if (Serial) {
     Serial.println(messageString);
@@ -177,9 +179,21 @@ void reciveMessage (unsigned char * token, bool * tokenHolder, char * message, b
     last_state = 0;
     word_done = false;
     state_count = 0;
-    *tokenHolder = true;
+    //*tokenHolder = true;
+    static int index = 0;
+    token[0] = 1;
+    token[1] = 2;
+    token[2] = 2;
+    if(index > 3){
+      token[3] = 0;
+    } else {
+    token[3] = 'a' + index;      
+    }
+    Serial.println("Looped");
+    index++;
     readToken(token);
-    updateToken(token, message, &messageEntered);
+    // updateToken(token, message, &messageEntered);
+    //TIMSK1 |= (1 << OCIE1A);
   }
 }
 
@@ -260,4 +274,11 @@ bool readToken(unsigned char * token) {
       }
     }  
   } 
+}
+
+ISR(TIMER1_COMPA_vect){
+  TCNT1  = 0;//initialize counter value to 0
+  TIMSK1 = 0;
+  timeUP = true;
+  Serial.println("Interupt");
 }
